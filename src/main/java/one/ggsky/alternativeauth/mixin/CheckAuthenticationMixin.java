@@ -38,9 +38,10 @@ public class CheckAuthenticationMixin {
     AlternativeAuthConfig CONFIG = AlternativeAuthConfigManager.getConfig();
 
     @Inject(at = @At("HEAD"), method = "hasJoinedServer", remap = false, cancellable = true)
-    public void CheckAuthentication(String profileName, String serverId, InetAddress address, CallbackInfoReturnable<ProfileResult> cir) throws AuthenticationUnavailableException {
+    public void CheckAuthentication(String profileName, String serverId, InetAddress address,
+            CallbackInfoReturnable<ProfileResult> cir) throws AuthenticationUnavailableException {
         final MinecraftClient client = MinecraftClient.unauthenticated(Proxy.NO_PROXY);
-        
+
         Map<String, Object> arguments = new HashMap<>();
 
         arguments.put("username", profileName);
@@ -54,24 +55,33 @@ public class CheckAuthenticationMixin {
             LOGGER.debug("Trying to authenticate player via " + provider.name());
             LOGGER.debug("Using " + provider.getCheckUrl());
 
-            final URL url = HttpAuthenticationService.concatenateURL(HttpAuthenticationService.constantURL(provider.getCheckUrl()), HttpAuthenticationService.buildQuery(arguments));
-            
+            final URL url = HttpAuthenticationService.concatenateURL(
+                    HttpAuthenticationService.constantURL(provider.getCheckUrl()),
+                    HttpAuthenticationService.buildQuery(arguments));
+
             try {
-                final HasJoinedMinecraftServerResponse response = client.get(url, HasJoinedMinecraftServerResponse.class);
+                final HasJoinedMinecraftServerResponse response = client.get(url,
+                        HasJoinedMinecraftServerResponse.class);
 
                 if (response != null && response.id() != null) {
                     LOGGER.debug("Response is not null");
-                    final GameProfile result = new GameProfile(response.id(), profileName);
+
+                    PropertyMap properties = null;
 
                     if (response.properties() != null) {
-                        PropertyMap properties;
                         LOGGER.debug("Properties is not null");
 
                         if (provider.getPropertyUrl() != null) {
-                            LOGGER.debug(MessageFormat.format("Found {0} property URL, fetching {1}", provider.name(), MessageFormat.format(provider.getPropertyUrl(), profileName, response.id())));
+                            LOGGER.debug(MessageFormat.format("Found {0} property URL, fetching {1}", provider.name(),
+                                    MessageFormat.format(provider.getPropertyUrl(), profileName, response.id())));
 
-                            final URL propertyUrl = HttpAuthenticationService.concatenateURL(HttpAuthenticationService.constantURL(MessageFormat.format(provider.getPropertyUrl(), profileName, response.id())), null);
-                            final HasJoinedMinecraftServerResponse propertyResponse = client.get(propertyUrl, HasJoinedMinecraftServerResponse.class);
+                            final URL propertyUrl = HttpAuthenticationService
+                                    .concatenateURL(
+                                            HttpAuthenticationService.constantURL(MessageFormat
+                                                    .format(provider.getPropertyUrl(), profileName, response.id())),
+                                            null);
+                            final HasJoinedMinecraftServerResponse propertyResponse = client.get(propertyUrl,
+                                    HasJoinedMinecraftServerResponse.class);
 
                             if (propertyResponse != null) {
                                 LOGGER.debug("Properties is not null");
@@ -83,13 +93,15 @@ public class CheckAuthenticationMixin {
                         } else {
                             properties = response.properties();
                         }
-
-                        result.getProperties().putAll(properties);
                     }
 
+                    final GameProfile result = properties != null
+                            ? new GameProfile(response.id(), profileName, properties)
+                            : new GameProfile(response.id(), profileName);
+
                     final Set<ProfileActionType> profileActions = response.profileActions().stream()
-                        .map(ProfileAction::type)
-                        .collect(Collectors.toSet());
+                            .map(ProfileAction::type)
+                            .collect(Collectors.toSet());
 
                     LOGGER.info("Authenticating player via " + provider.name());
                     cir.setReturnValue(new ProfileResult(result, profileActions));
@@ -98,7 +110,8 @@ public class CheckAuthenticationMixin {
                     cir.setReturnValue(null);
                 }
             } catch (final MinecraftClientException exception) {
-                if (exception.toAuthenticationException() instanceof final AuthenticationUnavailableException unavailable) {
+                if (exception
+                        .toAuthenticationException() instanceof final AuthenticationUnavailableException unavailable) {
                     throw unavailable;
                 }
 

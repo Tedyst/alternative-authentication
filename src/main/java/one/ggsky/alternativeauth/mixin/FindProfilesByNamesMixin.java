@@ -2,7 +2,7 @@ package one.ggsky.alternativeauth.mixin;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Iterables;
-import com.mojang.authlib.GameProfile;
+import com.mojang.authlib.yggdrasil.response.NameAndId;
 import com.mojang.authlib.HttpAuthenticationService;
 import com.mojang.authlib.ProfileLookupCallback;
 import com.mojang.authlib.exceptions.MinecraftClientException;
@@ -41,15 +41,16 @@ public class FindProfilesByNamesMixin {
     @Inject(at = @At("HEAD"), method = "findProfilesByNames", remap = false, cancellable = true)
     public void findProfilesByNames(String[] names, ProfileLookupCallback callback, CallbackInfo ci) {
         final MinecraftClient client = MinecraftClient.unauthenticated(Proxy.NO_PROXY);
-        
+
         final Set<String> criteria = Arrays.stream(names)
-            .filter(name -> !Strings.isNullOrEmpty(name))
-            .collect(Collectors.toSet());
+                .filter(name -> !Strings.isNullOrEmpty(name))
+                .collect(Collectors.toSet());
 
         final int page = 0;
 
         for (final List<String> request : Iterables.partition(criteria, ENTRIES_PER_PAGE)) {
-            final List<String> normalizedRequest = request.stream().map(FindProfilesByNamesMixin::normalizeName).toList();
+            final List<String> normalizedRequest = request.stream().map(FindProfilesByNamesMixin::normalizeName)
+                    .toList();
 
             int failCount = 0;
             boolean failed;
@@ -62,36 +63,41 @@ public class FindProfilesByNamesMixin {
 
                     for (AlternativeAuthProvider provider : CONFIG.getProviders()) {
                         final URL url = HttpAuthenticationService.constantURL(provider.getProfilesUrl());
-                        response = client.post(url, normalizedRequest ,ProfileSearchResultsResponse.class);
+                        response = client.post(url, normalizedRequest, ProfileSearchResultsResponse.class);
 
                         if (response != null && !response.profiles().isEmpty()) {
-                            LOGGER.debug(MessageFormat.format("Response from {0} provider is not null and contains at least 1 element", provider.name()));
+                            LOGGER.debug(MessageFormat.format(
+                                    "Response from {0} provider is not null and contains at least 1 element",
+                                    provider.name()));
                             break;
                         } else {
-                            LOGGER.debug(MessageFormat.format("Response from {0} provider is either null or contains no elements", provider.name()));
+                            LOGGER.debug(MessageFormat.format(
+                                    "Response from {0} provider is either null or contains no elements",
+                                    provider.name()));
                         }
                     }
 
-                    final List<GameProfile> profiles = response != null ? response.profiles() : List.of();
+                    final List<NameAndId> profiles = response != null ? response.profiles() : List.<NameAndId>of();
                     failCount = 0;
 
                     LOGGER.debug(MessageFormat.format("Page {0} returned {1} results, parsing", page, profiles.size()));
 
                     final Set<String> received = new HashSet<>(profiles.size());
-                    
-                    for (final GameProfile profile : profiles) {
+
+                    for (final NameAndId profile : profiles) {
                         LOGGER.debug(MessageFormat.format("Successfully looked up profile {0}", profile));
-                        received.add(normalizeName(profile.getName()));
-                        callback.onProfileLookupSucceeded(profile);
+                        received.add(normalizeName(profile.name()));
+                        callback.onProfileLookupSucceeded(profile.name(), profile.id());
                     }
 
                     for (final String name : request) {
                         if (received.contains(normalizeName(name))) {
                             continue;
                         }
-                        
+
                         LOGGER.debug(MessageFormat.format("Could not find profile {0}", name));
-                        callback.onProfileLookupFailed(name, new ProfileNotFoundException("Server did not find the requested profile"));
+                        callback.onProfileLookupFailed(name,
+                                new ProfileNotFoundException("Server did not find the requested profile"));
                     }
 
                     try {
@@ -103,7 +109,8 @@ public class FindProfilesByNamesMixin {
 
                     if (failCount == MAX_FAIL_COUNT) {
                         for (final String name : request) {
-                            LOGGER.debug(MessageFormat.format("Could not find profile {0} because of a server error", name));
+                            LOGGER.debug(
+                                    MessageFormat.format("Could not find profile {0} because of a server error", name));
                             callback.onProfileLookupFailed(name, exception.toAuthenticationException());
                         }
                     } else {
